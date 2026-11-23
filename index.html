@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,6 +24,7 @@ p{color:#ddd;line-height:1.8}
 .authbox{max-width:420px;margin:20px auto;background:#102344;border:1px solid #c9a34a;padding:25px;border-radius:12px}
 input{width:100%;padding:12px;margin:8px 0;border-radius:6px;border:1px solid #c9a34a}
 #message{margin:15px;color:#e4bd60}
+#userInfo{margin-top:15px;overflow-wrap:anywhere}
 footer{text-align:center;padding:25px;border-top:1px solid #c9a34a;color:#aaa}
 </style>
 </head>
@@ -110,7 +112,7 @@ async function signUp(){
   const password = document.getElementById("signupPassword").value;
 
   if(!fullName || !email || !password){
-    message.textContent = "Please enter your name, email and password.";
+    message.textContent = "Please enter name, email and password.";
     return;
   }
 
@@ -119,15 +121,15 @@ async function signUp(){
     return;
   }
 
-  message.textContent = "Creating your account...";
+  message.textContent = "Creating account...";
 
   const {data,error} = await supabaseClient.auth.signUp({
-    email: email,
-    password: password,
-    options: {
-      data: {
-        full_name: fullName,
-        phone: phone
+    email,
+    password,
+    options:{
+      data:{
+        full_name:fullName,
+        phone:phone
       }
     }
   });
@@ -139,8 +141,9 @@ async function signUp(){
 
   if(data.session){
     message.textContent = "Account created successfully!";
+    await loadProfile();
   }else{
-    message.textContent = "Account created. Please check your email to confirm it, then login.";
+    message.textContent = "Account created. Check your email to confirm, then login.";
   }
 }
 
@@ -148,11 +151,16 @@ async function signIn(){
   const email = document.getElementById("loginEmail").value.trim();
   const password = document.getElementById("loginPassword").value;
 
+  if(!email || !password){
+    message.textContent = "Enter email and password.";
+    return;
+  }
+
   message.textContent = "Logging in...";
 
   const {data,error} = await supabaseClient.auth.signInWithPassword({
-    email: email,
-    password: password
+    email,
+    password
   });
 
   if(error){
@@ -162,6 +170,7 @@ async function signIn(){
 
   message.textContent = "Login successful!";
   showUser(data.user);
+  await loadProfile();
 }
 
 async function signOut(){
@@ -184,44 +193,89 @@ function showUser(user){
   }
 }
 
-async function checkLogin(){
-  const {data} = await supabaseClient.auth.getSession();
-  if(data.session){
-    showUser(data.session.user);
-  }
-}
-
-supabaseClient.auth.onAuthStateChange((event,session)=>{
-  if(session){
-    showUser(session.user);
-    loadProfile();
-  }else{
-    showUser(null);
-  }
-});
 async function loadProfile(){
-  const {data:{user}} = await supabaseClient.auth.getUser();
+  message.textContent = "Loading profile...";
 
-  if(!user){
+  const {data:{user},error:userError} =
+    await supabaseClient.auth.getUser();
+
+  if(userError || !user){
     message.textContent = "Please login first.";
     return;
   }
 
-  const {data,error} = await supabaseClient
+  const {data:existing,error:readError} = await supabaseClient
     .from("profiles")
-    .select("*")
+    .select("id")
     .eq("id",user.id)
-    .single();
+    .maybeSingle();
 
-  if(error){
-    message.textContent = "Profile: " + error.message;
+  if(readError){
+    message.textContent = "Profile error: " + readError.message;
+    return;
+  }
+
+  const profile = {
+    full_name: user.user_metadata.full_name || "",
+    phone: user.user_metadata.phone || "",
+    updated_at: new Date().toISOString()
+  };
+
+  let result;
+
+  if(existing){
+    result = await supabaseClient
+      .from("profiles")
+      .update(profile)
+      .eq("id",user.id)
+      .select()
+      .single();
+  }else{
+    result = await supabaseClient
+      .from("profiles")
+      .insert({
+        id:user.id,
+        ...profile
+      })
+      .select()
+      .single();
+  }
+
+  if(result.error){
+    message.textContent = "Profile error: " + result.error.message;
     return;
   }
 
   userInfo.textContent =
-    "Name: " + (data.full_name || "") +
-    " | Phone: " + (data.phone || "");
+    "Email: " + user.email +
+    " | Name: " + (result.data.full_name || "Not added") +
+    " | Phone: " + (result.data.phone || "Not added");
+
+  message.textContent = "Profile loaded successfully!";
+}
+
+async function checkLogin(){
+  const {data,error} = await supabaseClient.auth.getSession();
+
+  if(error){
+    message.textContent = error.message;
+    return;
   }
+
+  if(data.session){
+    showUser(data.session.user);
+    await loadProfile();
+  }
+}
+
+supabaseClient.auth.onAuthStateChange((event,session)=>{
+  if(!session){
+    showUser(null);
+  }else{
+    showUser(session.user);
+  }
+});
+
 checkLogin();
 </script>
 </body>
