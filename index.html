@@ -194,11 +194,34 @@ async function checkLogin(){
 supabaseClient.auth.onAuthStateChange((event,session)=>{
   if(session){
     showUser(session.user);
+    loadProfile();
   }else{
     showUser(null);
   }
 });
+async function loadProfile(){
+  const {data:{user}} = await supabaseClient.auth.getUser();
 
+  if(!user){
+    message.textContent = "Please login first.";
+    return;
+  }
+
+  const {data,error} = await supabaseClient
+    .from("profiles")
+    .select("*")
+    .eq("id",user.id)
+    .single();
+
+  if(error){
+    message.textContent = "Profile: " + error.message;
+    return;
+  }
+
+  userInfo.textContent =
+    "Name: " + (data.full_name || "") +
+    " | Phone: " + (data.phone || "");
+  }
 checkLogin();
 </script>
 </body>
